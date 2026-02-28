@@ -13,6 +13,8 @@ interface PlayingCardProps {
   size?: "sm" | "md" | "lg";
   className?: string;
   highlight?: "correct" | "incorrect" | null;
+  countValue?: number | null;
+  showCountBadge?: boolean;
 }
 
 function getSuitColor(suit: BJCard["suit"]): string {
@@ -97,6 +99,8 @@ export function PlayingCard({
   size = "md",
   className,
   highlight,
+  countValue = null,
+  showCountBadge = false,
 }: PlayingCardProps) {
   const [isFlipped, setIsFlipped] = useState(faceDown);
   const [isVisible, setIsVisible] = useState(!animate);
@@ -186,6 +190,23 @@ export function PlayingCard({
           </div>
         </div>
       </div>
+
+      {/* Count value badge */}
+      {showCountBadge && countValue !== null && !faceDown && (
+        <div
+          className={cn(
+            "absolute -top-2 -right-2 z-10 flex items-center justify-center rounded-full border-2 shadow-md text-[10px] font-bold text-white",
+            size === "sm" ? "w-5 h-5" : "w-6 h-6",
+            countValue > 0
+              ? "bg-emerald-500 border-emerald-300"
+              : countValue < 0
+                ? "bg-red-500 border-red-300"
+                : "bg-gray-500 border-gray-300"
+          )}
+        >
+          {countValue > 0 ? "+" : ""}{countValue}
+        </div>
+      )}
     </div>
   );
 }

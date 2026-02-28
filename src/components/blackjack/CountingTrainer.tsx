@@ -3,7 +3,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type {
   BJCard,
-  TrainerMode,
   TrainerConfig,
   TrainerStats,
   DrillCheckpoint,
@@ -13,9 +12,19 @@ import type {
 } from "@/types/blackjack";
 import { DEAL_SPEED_MS } from "@/types/blackjack";
 import { createShoe, getPenetration, getCardsRemaining } from "@/lib/blackjack/deck";
-import { getRunningCount, getTrueCount, getBettingAdvice, COUNTING_SYSTEMS } from "@/lib/blackjack/counting";
+import {
+  getRunningCount,
+  getCardValue,
+  getTrueCount,
+  getBettingAdvice,
+  COUNTING_SYSTEMS,
+} from "@/lib/blackjack/counting";
 import { PlayingCard, MiniCard } from "./PlayingCard";
+import { Tutorial } from "./Tutorial";
+import { Playground } from "./Playground";
 import { cn } from "@/lib/utils";
+
+type AppMode = "home" | "tutorial" | "playground" | "speed-drill" | "table-sim" | "results";
 
 const DEFAULT_CONFIG: TrainerConfig = {
   system: "hi-lo",
@@ -24,199 +33,224 @@ const DEFAULT_CONFIG: TrainerConfig = {
   checkpointInterval: 5,
 };
 
-// ─────────────────────── Setup Screen ───────────────────────
-function SetupScreen({
+// ─────────────────────── Home Screen ───────────────────────
+function HomeScreen({
   config,
   onConfigChange,
-  onStart,
+  onSelectMode,
 }: {
   config: TrainerConfig;
   onConfigChange: (c: TrainerConfig) => void;
-  onStart: (mode: "speed-drill" | "table-sim") => void;
+  onSelectMode: (mode: AppMode) => void;
 }) {
-  const system = COUNTING_SYSTEMS[config.system];
+  const [showSettings, setShowSettings] = useState(false);
+
+  const modes = [
+    {
+      key: "tutorial" as AppMode,
+      title: "Learn to Count",
+      tag: "Start Here",
+      tagColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+      desc: "Interactive tutorial that teaches card values, running count, true count, and bet sizing step by step.",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+        </svg>
+      ),
+    },
+    {
+      key: "playground" as AppMode,
+      title: "Playground",
+      tag: "Recommended",
+      tagColor: "bg-primary/10 text-primary border-primary/20",
+      desc: "Watch cards dealt with live count overlay, value badges on every card, and real-time strategy insights. No pressure — just observe and learn.",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary">
+          <circle cx="12" cy="12" r="10" />
+          <polygon points="10 8 16 12 10 16 10 8" />
+        </svg>
+      ),
+    },
+    {
+      key: "speed-drill" as AppMode,
+      title: "Speed Drill",
+      tag: null,
+      tagColor: "",
+      desc: "Cards dealt one at a time. Track the count in your head, then verify at checkpoints. Build speed and accuracy.",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-yellow-400">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+        </svg>
+      ),
+    },
+    {
+      key: "table-sim" as AppMode,
+      title: "Table Simulation",
+      tag: null,
+      tagColor: "",
+      desc: "Full multi-spot blackjack rounds. Track the count across an entire shoe like you would at a real table.",
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400">
+          <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+          <path d="M16 2v5M8 2v5M2 12h20" />
+        </svg>
+      ),
+    },
+  ];
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      {/* System Selection */}
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-3">
-          Counting System
-        </label>
-        <div className="grid grid-cols-2 gap-3">
-          {(Object.keys(COUNTING_SYSTEMS) as CountingSystem[]).map((key) => {
-            const sys = COUNTING_SYSTEMS[key];
-            return (
-              <button
-                key={key}
-                onClick={() => onConfigChange({ ...config, system: key })}
-                className={cn(
-                  "rounded-xl border p-4 text-left transition-all",
-                  config.system === key
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                    : "border-border hover:border-muted-foreground/30"
-                )}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="font-semibold text-sm">{sys.name}</span>
-                  {!sys.balanced && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
-                      Unbalanced
+      {/* Mode Cards */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">Choose Your Path</h2>
+        {modes.map((mode) => (
+          <button
+            key={mode.key}
+            onClick={() => onSelectMode(mode.key)}
+            className="w-full rounded-xl border border-border bg-card hover:bg-card/80 hover:border-muted-foreground/20 p-5 text-left transition-all group"
+          >
+            <div className="flex items-start gap-4">
+              <div className="mt-0.5 shrink-0 w-10 h-10 rounded-lg bg-secondary flex items-center justify-center group-hover:scale-105 transition-transform">
+                {mode.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-semibold">{mode.title}</span>
+                  {mode.tag && (
+                    <span className={cn("text-[10px] px-1.5 py-0.5 rounded border font-medium", mode.tagColor)}>
+                      {mode.tag}
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground">{sys.description}</p>
-              </button>
-            );
-          })}
-        </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">{mode.desc}</p>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-1 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </div>
+          </button>
+        ))}
       </div>
 
-      {/* Count Values Reference */}
-      <div className="rounded-xl border border-border bg-card/50 p-4">
-        <h3 className="text-sm font-medium mb-3">{system.name} Card Values</h3>
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
-            <div className="text-emerald-400 text-lg font-bold mb-1">+1</div>
-            <div className="text-xs text-muted-foreground">
-              {Object.entries(system.values)
-                .filter(([, v]) => v === 1)
-                .map(([r]) => r === "T" ? "10" : r)
-                .join(", ")}
-            </div>
-          </div>
-          <div className="rounded-lg bg-gray-500/10 border border-gray-500/20 p-3 text-center">
-            <div className="text-gray-400 text-lg font-bold mb-1">0</div>
-            <div className="text-xs text-muted-foreground">
-              {Object.entries(system.values)
-                .filter(([, v]) => v === 0)
-                .map(([r]) => r === "T" ? "10" : r)
-                .join(", ")}
-            </div>
-          </div>
-          <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-center">
-            <div className="text-red-400 text-lg font-bold mb-1">-1</div>
-            <div className="text-xs text-muted-foreground">
-              {Object.entries(system.values)
-                .filter(([, v]) => v === -1)
-                .map(([r]) => r === "T" ? "10" : r)
-                .join(", ")}
-            </div>
-          </div>
-          {Object.values(system.values).some((v) => v === 2) && (
-            <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
-              <div className="text-emerald-300 text-lg font-bold mb-1">+2</div>
-              <div className="text-xs text-muted-foreground">
-                {Object.entries(system.values)
-                  .filter(([, v]) => v === 2)
-                  .map(([r]) => r === "T" ? "10" : r)
-                  .join(", ")}
+      {/* Settings Toggle */}
+      <div>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            className={cn("transition-transform", showSettings && "rotate-90")}
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+          Settings
+          <span className="text-xs text-muted-foreground/60">
+            {COUNTING_SYSTEMS[config.system].name} · {config.deckCount} deck{config.deckCount > 1 ? "s" : ""} · {config.speed}
+          </span>
+        </button>
+
+        {showSettings && (
+          <div className="mt-4 rounded-xl border border-border bg-card/50 p-5 space-y-5">
+            {/* System */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Counting System</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(COUNTING_SYSTEMS) as CountingSystem[]).map((key) => {
+                  const sys = COUNTING_SYSTEMS[key];
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => onConfigChange({ ...config, system: key })}
+                      className={cn(
+                        "rounded-lg border p-3 text-left text-sm transition-all",
+                        config.system === key
+                          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                          : "border-border hover:border-muted-foreground/30"
+                      )}
+                    >
+                      <span className="font-medium">{sys.name}</span>
+                      {!sys.balanced && (
+                        <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-yellow-500/10 text-yellow-500 border border-yellow-500/20">
+                          Unbalanced
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
-          )}
-          {Object.values(system.values).some((v) => v === -2) && (
-            <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-center">
-              <div className="text-red-300 text-lg font-bold mb-1">-2</div>
-              <div className="text-xs text-muted-foreground">
-                {Object.entries(system.values)
-                  .filter(([, v]) => v === -2)
-                  .map(([r]) => r === "T" ? "10" : r)
-                  .join(", ")}
+
+            {/* Decks */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Decks</label>
+              <div className="flex gap-2">
+                {([1, 2, 6, 8] as DeckCount[]).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onConfigChange({ ...config, deckCount: n })}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all",
+                      config.deckCount === n
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
               </div>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Deck Count */}
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-3">
-          Number of Decks
-        </label>
-        <div className="flex gap-3">
-          {([1, 2, 6, 8] as DeckCount[]).map((n) => (
-            <button
-              key={n}
-              onClick={() => onConfigChange({ ...config, deckCount: n })}
-              className={cn(
-                "flex-1 rounded-xl border py-3 text-center font-semibold transition-all",
-                config.deckCount === n
-                  ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
-                  : "border-border text-muted-foreground hover:border-muted-foreground/30"
-              )}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
+            {/* Speed */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Deal Speed</label>
+              <div className="flex gap-2">
+                {(["slow", "medium", "fast", "turbo"] as DealSpeed[]).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => onConfigChange({ ...config, speed: s })}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-center text-sm font-medium capitalize transition-all",
+                      config.speed === s
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-      {/* Deal Speed */}
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-3">
-          Deal Speed
-        </label>
-        <div className="flex gap-3">
-          {(["slow", "medium", "fast", "turbo"] as DealSpeed[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => onConfigChange({ ...config, speed: s })}
-              className={cn(
-                "flex-1 rounded-xl border py-3 text-center text-sm font-medium capitalize transition-all",
-                config.speed === s
-                  ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
-                  : "border-border text-muted-foreground hover:border-muted-foreground/30"
-              )}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Checkpoint interval */}
-      <div>
-        <label className="block text-sm font-medium text-muted-foreground mb-3">
-          Check Count Every
-        </label>
-        <div className="flex gap-3">
-          {[1, 3, 5, 10].map((n) => (
-            <button
-              key={n}
-              onClick={() => onConfigChange({ ...config, checkpointInterval: n })}
-              className={cn(
-                "flex-1 rounded-xl border py-3 text-center text-sm font-medium transition-all",
-                config.checkpointInterval === n
-                  ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
-                  : "border-border text-muted-foreground hover:border-muted-foreground/30"
-              )}
-            >
-              {n} card{n > 1 ? "s" : ""}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Start Buttons */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
-        <button
-          onClick={() => onStart("speed-drill")}
-          className="rounded-xl bg-primary px-6 py-4 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <div className="text-base">Speed Drill</div>
-          <div className="text-xs opacity-70 mt-1">
-            Cards dealt one at a time — track the count
+            {/* Checkpoint */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Check Count Every (drill modes)</label>
+              <div className="flex gap-2">
+                {[1, 3, 5, 10].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onConfigChange({ ...config, checkpointInterval: n })}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all",
+                      config.checkpointInterval === n
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </button>
-        <button
-          onClick={() => onStart("table-sim")}
-          className="rounded-xl border border-primary/50 bg-primary/5 px-6 py-4 font-semibold text-primary hover:bg-primary/10 transition-colors"
-        >
-          <div className="text-base">Table Simulation</div>
-          <div className="text-xs opacity-70 mt-1">
-            Full rounds with multiple hands dealt
-          </div>
-        </button>
+        )}
       </div>
     </div>
   );
@@ -252,11 +286,8 @@ function ShoeIndicator({
           className="h-full rounded-full transition-all duration-500 ease-out"
           style={{
             width: `${100 - penetration}%`,
-            background: penetration > 75
-              ? "#ef4444"
-              : penetration > 50
-                ? "#eab308"
-                : "#00d4aa",
+            background:
+              penetration > 75 ? "#ef4444" : penetration > 50 ? "#eab308" : "#00d4aa",
           }}
         />
       </div>
@@ -271,9 +302,11 @@ function ShoeIndicator({
 function SpeedDrill({
   config,
   onFinish,
+  onBack,
 }: {
   config: TrainerConfig;
   onFinish: (stats: TrainerStats, checkpoints: DrillCheckpoint[]) => void;
+  onBack: () => void;
 }) {
   const [shoe] = useState(() => createShoe(config.deckCount));
   const [cardIndex, setCardIndex] = useState(0);
@@ -281,9 +314,13 @@ function SpeedDrill({
   const [isWaiting, setIsWaiting] = useState(false);
   const [userInput, setUserInput] = useState("");
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
-  const [lastResult, setLastResult] = useState<{ correct: boolean; actual: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    correct: boolean;
+    actual: number;
+  } | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [showCount, setShowCount] = useState(false);
+  const [showBadges, setShowBadges] = useState(false);
   const [stats, setStats] = useState<TrainerStats>({
     totalCheckpoints: 0,
     correctCheckpoints: 0,
@@ -313,7 +350,11 @@ function SpeedDrill({
     if (cardIndex >= shoe.length) {
       const elapsed = (Date.now() - sessionStartTime.current) / 60000;
       onFinish(
-        { ...stats, cardsDealt: cardIndex, cardsPerMinute: Math.round(cardIndex / elapsed) },
+        {
+          ...stats,
+          cardsDealt: cardIndex,
+          cardsPerMinute: Math.round(cardIndex / elapsed),
+        },
         checkpoints
       );
       return;
@@ -332,7 +373,6 @@ function SpeedDrill({
     }
   }, [cardIndex, shoe, config.checkpointInterval, onFinish, stats, checkpoints]);
 
-  // Auto-deal timer
   useEffect(() => {
     if (isPaused || isWaiting) return;
     dealTimerRef.current = setTimeout(dealNextCard, DEAL_SPEED_MS[config.speed]);
@@ -378,51 +418,72 @@ function SpeedDrill({
     setLastResult({ correct: isCorrect, actual: actualCount });
     setUserInput("");
     setIsWaiting(false);
-
     setTimeout(() => setLastResult(null), 1500);
   };
 
   const handleEndDrill = () => {
     const elapsed = (Date.now() - sessionStartTime.current) / 60000;
     onFinish(
-      { ...stats, cardsPerMinute: elapsed > 0 ? Math.round(stats.cardsDealt / elapsed) : 0 },
+      {
+        ...stats,
+        cardsPerMinute:
+          elapsed > 0 ? Math.round(stats.cardsDealt / elapsed) : 0,
+      },
       checkpoints
     );
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Top Bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onBack}
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            ← Back
+          </button>
+          <div className="w-px h-4 bg-border" />
           <button
             onClick={() => setIsPaused(!isPaused)}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-card transition-colors"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-card transition-colors"
           >
             {isPaused ? "Resume" : "Pause"}
           </button>
           <button
             onClick={() => setShowCount(!showCount)}
             className={cn(
-              "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
               showCount
                 ? "border-primary/50 bg-primary/10 text-primary"
                 : "border-border hover:bg-card"
             )}
           >
-            {showCount ? "Hide Count" : "Peek Count"}
+            {showCount ? "Hide Count" : "Peek"}
+          </button>
+          <button
+            onClick={() => setShowBadges(!showBadges)}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              showBadges
+                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                : "border-border hover:bg-card"
+            )}
+          >
+            {showBadges ? "Hide Values" : "Show Values"}
           </button>
         </div>
         <button
           onClick={handleEndDrill}
-          className="rounded-lg border border-destructive/50 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+          className="rounded-lg border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
         >
           End Drill
         </button>
       </div>
 
-      {/* Main Felt Area */}
-      <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[360px] relative overflow-hidden">
+      {/* Felt Area */}
+      <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[340px] relative overflow-hidden">
         {isPaused && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl">
             <div className="text-center">
@@ -437,7 +498,7 @@ function SpeedDrill({
           </div>
         )}
 
-        {/* Cards Area */}
+        {/* Cards */}
         <div className="flex items-center justify-center min-h-[160px]">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center">
             {visibleCards.slice(-6).map((card, i) => (
@@ -447,21 +508,25 @@ function SpeedDrill({
                 size="lg"
                 animate={i === visibleCards.slice(-6).length - 1}
                 faceDown={false}
+                countValue={getCardValue(card.rank, config.system)}
+                showCountBadge={showBadges}
               />
             ))}
           </div>
         </div>
 
-        {/* Count Input Area */}
+        {/* Count input — positioned below the cards, not as an overlay */}
         {isWaiting && (
-          <div className="mt-8 flex justify-center">
-            <div className={cn(
-              "bg-black/40 backdrop-blur rounded-xl p-5 border border-white/10 w-full max-w-xs text-center",
-              lastResult?.correct === true && "flash-correct",
-              lastResult?.correct === false && "flash-incorrect"
-            )}>
-              <div className="text-sm text-white/70 mb-3">
-                What is the running count?
+          <div className="mt-6 flex justify-center">
+            <div
+              className={cn(
+                "bg-black/30 backdrop-blur-sm rounded-xl px-5 py-4 border border-white/10 w-full max-w-sm",
+                lastResult?.correct === true && "flash-correct",
+                lastResult?.correct === false && "flash-incorrect"
+              )}
+            >
+              <div className="text-xs text-white/50 mb-2 text-center">
+                Running count after {cardIndex} cards?
               </div>
               <form
                 onSubmit={(e) => {
@@ -475,13 +540,13 @@ function SpeedDrill({
                   type="number"
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
-                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2.5 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
                   placeholder="0"
                   autoFocus
                 />
                 <button
                   type="submit"
-                  className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="rounded-lg bg-primary px-5 py-2 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   Check
                 </button>
@@ -490,9 +555,9 @@ function SpeedDrill({
           </div>
         )}
 
-        {/* Last Result Toast */}
+        {/* Result toast */}
         {lastResult && !isWaiting && (
-          <div className="mt-6 flex justify-center">
+          <div className="mt-4 flex justify-center">
             <div
               className={cn(
                 "rounded-lg px-4 py-2 text-sm font-medium",
@@ -503,69 +568,67 @@ function SpeedDrill({
             >
               {lastResult.correct
                 ? "Correct!"
-                : `Wrong — actual count: ${lastResult.actual}`}
+                : `Wrong — actual: ${lastResult.actual}`}
             </div>
           </div>
         )}
 
-        {/* Peek count overlay */}
+        {/* Peek overlay */}
         {showCount && (
           <div className="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
-            <div className="text-xs text-white/50">Running Count</div>
+            <div className="text-xs text-white/50">RC</div>
             <div className="text-2xl font-bold text-white count-pop">
-              {actualCount > 0 ? "+" : ""}{actualCount}
+              {actualCount > 0 ? "+" : ""}
+              {actualCount}
+            </div>
+            <div className="text-xs text-white/40 mt-1">
+              TC: {trueCount > 0 ? "+" : ""}
+              {trueCount}
             </div>
           </div>
         )}
       </div>
 
-      {/* Bottom Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <ShoeIndicator
-          total={shoe.length}
-          remaining={remaining}
-          penetration={penetration}
-        />
-
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <ShoeIndicator total={shoe.length} remaining={remaining} penetration={penetration} />
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Accuracy</div>
           <div className="text-2xl font-bold">
             {stats.totalCheckpoints > 0 ? `${stats.accuracy}%` : "—"}
           </div>
           <div className="text-xs text-muted-foreground">
-            {stats.correctCheckpoints}/{stats.totalCheckpoints} correct
+            {stats.correctCheckpoints}/{stats.totalCheckpoints}
           </div>
         </div>
-
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Streak</div>
-          <div className="text-2xl font-bold text-primary">
-            {stats.currentStreak}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            Best: {stats.bestStreak}
-          </div>
+          <div className="text-2xl font-bold text-primary">{stats.currentStreak}</div>
+          <div className="text-xs text-muted-foreground">Best: {stats.bestStreak}</div>
         </div>
-
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Bet Sizing</div>
           <div className="text-2xl font-bold" style={{ color: bettingAdvice.color }}>
             {bettingAdvice.label}
           </div>
           <div className="text-xs text-muted-foreground">
-            TC: {trueCount > 0 ? "+" : ""}{trueCount}
+            TC: {trueCount > 0 ? "+" : ""}
+            {trueCount}
           </div>
         </div>
       </div>
 
-      {/* Card History */}
+      {/* Card history */}
       {visibleCards.length > 6 && (
         <div className="rounded-xl border border-border bg-card/50 p-4">
           <div className="text-xs text-muted-foreground mb-2">Recent Cards</div>
           <div className="flex flex-wrap gap-1">
-            {visibleCards.slice(0, -6).slice(-20).map((card) => (
-              <MiniCard key={card.id} card={card} />
-            ))}
+            {visibleCards
+              .slice(0, -6)
+              .slice(-20)
+              .map((card) => (
+                <MiniCard key={card.id} card={card} />
+              ))}
           </div>
         </div>
       )}
@@ -577,9 +640,11 @@ function SpeedDrill({
 function TableSim({
   config,
   onFinish,
+  onBack,
 }: {
   config: TrainerConfig;
   onFinish: (stats: TrainerStats, checkpoints: DrillCheckpoint[]) => void;
+  onBack: () => void;
 }) {
   const [shoe] = useState(() => createShoe(config.deckCount));
   const [cardIndex, setCardIndex] = useState(0);
@@ -590,8 +655,12 @@ function TableSim({
   const [phase, setPhase] = useState<"dealing" | "waiting" | "between">("between");
   const [userInput, setUserInput] = useState("");
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
-  const [lastResult, setLastResult] = useState<{ correct: boolean; actual: number } | null>(null);
+  const [lastResult, setLastResult] = useState<{
+    correct: boolean;
+    actual: number;
+  } | null>(null);
   const [showCount, setShowCount] = useState(false);
+  const [showBadges, setShowBadges] = useState(false);
   const [stats, setStats] = useState<TrainerStats>({
     totalCheckpoints: 0,
     correctCheckpoints: 0,
@@ -606,7 +675,7 @@ function TableSim({
   const checkpointStartTime = useRef(Date.now());
   const sessionStartTime = useRef(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
-  const numSpots = 3; // 3 player spots
+  const numSpots = 3;
 
   const actualCount = getRunningCount(
     allDealtCards.map((c) => c.rank),
@@ -621,7 +690,11 @@ function TableSim({
     if (cardIndex + (numSpots + 1) * 2 > shoe.length) {
       const elapsed = (Date.now() - sessionStartTime.current) / 60000;
       onFinish(
-        { ...stats, cardsDealt: cardIndex, cardsPerMinute: Math.round(cardIndex / elapsed) },
+        {
+          ...stats,
+          cardsDealt: cardIndex,
+          cardsPerMinute: Math.round(cardIndex / elapsed),
+        },
         checkpoints
       );
       return;
@@ -635,7 +708,6 @@ function TableSim({
     const dealer: BJCard[] = [];
     const roundCards: BJCard[] = [];
 
-    // First pass: one card to each spot + dealer
     for (let s = 0; s < numSpots; s++) {
       hands[s].push(shoe[idx]);
       roundCards.push(shoe[idx]);
@@ -644,8 +716,6 @@ function TableSim({
     dealer.push(shoe[idx]);
     roundCards.push(shoe[idx]);
     idx++;
-
-    // Second pass
     for (let s = 0; s < numSpots; s++) {
       hands[s].push(shoe[idx]);
       roundCards.push(shoe[idx]);
@@ -661,7 +731,6 @@ function TableSim({
     setCardIndex(idx);
     setStats((prev) => ({ ...prev, cardsDealt: idx }));
 
-    // After dealing animation, wait for count
     setTimeout(() => {
       setPhase("waiting");
       checkpointStartTime.current = Date.now();
@@ -706,47 +775,63 @@ function TableSim({
     setLastResult({ correct: isCorrect, actual: actualCount });
     setUserInput("");
     setPhase("between");
-
     setTimeout(() => setLastResult(null), 1500);
   };
 
   const handleEndDrill = () => {
     const elapsed = (Date.now() - sessionStartTime.current) / 60000;
     onFinish(
-      { ...stats, cardsPerMinute: elapsed > 0 ? Math.round(stats.cardsDealt / elapsed) : 0 },
+      {
+        ...stats,
+        cardsPerMinute:
+          elapsed > 0 ? Math.round(stats.cardsDealt / elapsed) : 0,
+      },
       checkpoints
     );
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Top Bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            ← Back
+          </button>
+          <div className="w-px h-4 bg-border" />
           <span className="text-sm text-muted-foreground">Round {roundNum}</span>
           <button
             onClick={() => setShowCount(!showCount)}
             className={cn(
-              "rounded-lg border px-4 py-2 text-sm font-medium transition-colors",
-              showCount
-                ? "border-primary/50 bg-primary/10 text-primary"
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              showCount ? "border-primary/50 bg-primary/10 text-primary" : "border-border hover:bg-card"
+            )}
+          >
+            {showCount ? "Hide Count" : "Peek"}
+          </button>
+          <button
+            onClick={() => setShowBadges(!showBadges)}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              showBadges
+                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
                 : "border-border hover:bg-card"
             )}
           >
-            {showCount ? "Hide Count" : "Peek Count"}
+            {showBadges ? "Hide Values" : "Show Values"}
           </button>
         </div>
         <button
           onClick={handleEndDrill}
-          className="rounded-lg border border-destructive/50 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+          className="rounded-lg border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
         >
           End Session
         </button>
       </div>
 
-      {/* Table Felt */}
-      <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[420px] relative overflow-hidden">
-        {/* Dealer Area */}
+      {/* Felt */}
+      <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[400px] relative overflow-hidden">
+        {/* Dealer */}
         <div className="text-center mb-8">
           <div className="text-xs text-white/40 uppercase tracking-wider mb-3">Dealer</div>
           <div className="flex justify-center gap-3">
@@ -759,6 +844,8 @@ function TableSim({
                   faceDown={i === 1}
                   animate
                   dealDelay={i * 150 + numSpots * 150}
+                  countValue={i === 0 ? getCardValue(card.rank, config.system) : null}
+                  showCountBadge={showBadges && i === 0}
                 />
               ))
             ) : (
@@ -769,10 +856,9 @@ function TableSim({
           </div>
         </div>
 
-        {/* Divider */}
         <div className="border-t border-white/10 my-6" />
 
-        {/* Player Spots */}
+        {/* Player spots */}
         <div className="grid grid-cols-3 gap-4 sm:gap-8 mb-6">
           {Array.from({ length: numSpots }).map((_, spotIdx) => (
             <div key={spotIdx} className="text-center">
@@ -787,6 +873,8 @@ function TableSim({
                     size="md"
                     animate
                     dealDelay={spotIdx * 150 + (cardIdx === 1 ? (numSpots + 1) * 150 : 0)}
+                    countValue={getCardValue(card.rank, config.system)}
+                    showCountBadge={showBadges}
                   />
                 ))}
                 {!playerHands[spotIdx] && (
@@ -800,15 +888,12 @@ function TableSim({
         {/* Count Input */}
         {phase === "waiting" && (
           <div className="flex justify-center mt-4">
-            <div className="bg-black/40 backdrop-blur rounded-xl p-5 border border-white/10 w-full max-w-xs text-center">
-              <div className="text-sm text-white/70 mb-3">
-                Running count after this round?
+            <div className="bg-black/30 backdrop-blur-sm rounded-xl px-5 py-4 border border-white/10 w-full max-w-sm">
+              <div className="text-xs text-white/50 mb-2 text-center">
+                Running count after round {roundNum}?
               </div>
               <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSubmitCount();
-                }}
+                onSubmit={(e) => { e.preventDefault(); handleSubmitCount(); }}
                 className="flex gap-2"
               >
                 <input
@@ -816,13 +901,13 @@ function TableSim({
                   type="number"
                   value={userInput}
                   onChange={(e) => setUserInput(e.target.value)}
-                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2.5 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
                   placeholder="0"
                   autoFocus
                 />
                 <button
                   type="submit"
-                  className="rounded-lg bg-primary px-5 py-2.5 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                  className="rounded-lg bg-primary px-5 py-2 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   Check
                 </button>
@@ -831,7 +916,7 @@ function TableSim({
           </div>
         )}
 
-        {/* Between rounds — deal button */}
+        {/* Deal button */}
         {phase === "between" && (
           <div className="flex justify-center mt-4">
             <button
@@ -843,7 +928,7 @@ function TableSim({
           </div>
         )}
 
-        {/* Result Toast */}
+        {/* Result */}
         {lastResult && phase === "between" && (
           <div className="flex justify-center mt-4">
             <div
@@ -854,55 +939,52 @@ function TableSim({
                   : "bg-red-500/20 text-red-300 border border-red-500/30"
               )}
             >
-              {lastResult.correct
-                ? "Correct!"
-                : `Wrong — actual count: ${lastResult.actual}`}
+              {lastResult.correct ? "Correct!" : `Wrong — actual: ${lastResult.actual}`}
             </div>
           </div>
         )}
 
-        {/* Peek count */}
+        {/* Peek */}
         {showCount && (
           <div className="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
-            <div className="text-xs text-white/50">Running Count</div>
+            <div className="text-xs text-white/50">RC</div>
             <div className="text-2xl font-bold text-white count-pop">
-              {actualCount > 0 ? "+" : ""}{actualCount}
+              {actualCount > 0 ? "+" : ""}
+              {actualCount}
+            </div>
+            <div className="text-xs text-white/40 mt-1">
+              TC: {trueCount > 0 ? "+" : ""}
+              {trueCount}
             </div>
           </div>
         )}
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <ShoeIndicator
-          total={shoe.length}
-          remaining={remaining}
-          penetration={penetration}
-        />
-
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <ShoeIndicator total={shoe.length} remaining={remaining} penetration={penetration} />
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Accuracy</div>
           <div className="text-2xl font-bold">
             {stats.totalCheckpoints > 0 ? `${stats.accuracy}%` : "—"}
           </div>
           <div className="text-xs text-muted-foreground">
-            {stats.correctCheckpoints}/{stats.totalCheckpoints} correct
+            {stats.correctCheckpoints}/{stats.totalCheckpoints}
           </div>
         </div>
-
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Streak</div>
           <div className="text-2xl font-bold text-primary">{stats.currentStreak}</div>
           <div className="text-xs text-muted-foreground">Best: {stats.bestStreak}</div>
         </div>
-
         <div className="rounded-xl border border-border bg-card/80 p-4">
           <div className="text-xs text-muted-foreground mb-1">Bet Sizing</div>
           <div className="text-2xl font-bold" style={{ color: bettingAdvice.color }}>
             {bettingAdvice.label}
           </div>
           <div className="text-xs text-muted-foreground">
-            TC: {trueCount > 0 ? "+" : ""}{trueCount}
+            TC: {trueCount > 0 ? "+" : ""}
+            {trueCount}
           </div>
         </div>
       </div>
@@ -916,46 +998,43 @@ function ResultsScreen({
   checkpoints,
   config,
   onRestart,
+  onPlayground,
 }: {
   stats: TrainerStats;
   checkpoints: DrillCheckpoint[];
   config: TrainerConfig;
   onRestart: () => void;
+  onPlayground: () => void;
 }) {
   const system = COUNTING_SYSTEMS[config.system];
 
   const grade =
     stats.accuracy >= 95
-      ? { label: "Master", color: "#7c3aed", desc: "You have elite counting precision." }
+      ? { label: "Master", color: "#7c3aed", desc: "Elite counting precision." }
       : stats.accuracy >= 85
-        ? { label: "Expert", color: "#00d4aa", desc: "Strong counting skills — keep sharpening." }
+        ? { label: "Expert", color: "#00d4aa", desc: "Strong skills — keep sharpening." }
         : stats.accuracy >= 70
           ? { label: "Proficient", color: "#22c55e", desc: "Good foundation — practice speed next." }
           : stats.accuracy >= 50
-            ? { label: "Developing", color: "#eab308", desc: "Keep practicing — accuracy comes with reps." }
-            : { label: "Beginner", color: "#ef4444", desc: "Focus on the card values first, speed later." };
+            ? { label: "Developing", color: "#eab308", desc: "Getting there — keep at it." }
+            : { label: "Beginner", color: "#ef4444", desc: "Try the Playground to learn the flow first." };
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
-      {/* Grade */}
       <div className="text-center space-y-3">
-        <div
-          className="text-5xl font-bold"
-          style={{ color: grade.color }}
-        >
+        <div className="text-5xl font-bold" style={{ color: grade.color }}>
           {stats.accuracy}%
         </div>
         <div className="text-xl font-semibold" style={{ color: grade.color }}>
           {grade.label}
         </div>
-        <p className="text-muted-foreground">{grade.desc}</p>
+        <p className="text-muted-foreground text-sm">{grade.desc}</p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border bg-card p-4 text-center">
           <div className="text-2xl font-bold">{stats.cardsDealt}</div>
-          <div className="text-xs text-muted-foreground">Cards Dealt</div>
+          <div className="text-xs text-muted-foreground">Cards</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
           <div className="text-2xl font-bold">
@@ -969,19 +1048,16 @@ function ResultsScreen({
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
           <div className="text-2xl font-bold">
-            {stats.avgResponseTimeMs > 0
-              ? `${(stats.avgResponseTimeMs / 1000).toFixed(1)}s`
-              : "—"}
+            {stats.avgResponseTimeMs > 0 ? `${(stats.avgResponseTimeMs / 1000).toFixed(1)}s` : "—"}
           </div>
-          <div className="text-xs text-muted-foreground">Avg Response</div>
+          <div className="text-xs text-muted-foreground">Avg Time</div>
         </div>
       </div>
 
-      {/* Checkpoint History */}
       {checkpoints.length > 0 && (
         <div className="rounded-xl border border-border bg-card/50 p-4">
           <h3 className="text-sm font-medium mb-3">Checkpoint History</h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
             {checkpoints.map((cp, i) => (
               <div
                 key={i}
@@ -992,22 +1068,11 @@ function ResultsScreen({
                     : "bg-red-500/5 border border-red-500/10"
                 )}
               >
-                <span className="text-muted-foreground">
-                  Card #{cp.cardIndex}
-                </span>
-                <div className="flex items-center gap-4">
-                  <span>
-                    Your: <strong>{cp.userCount}</strong>
-                  </span>
-                  <span>
-                    Actual: <strong>{cp.actualCount}</strong>
-                  </span>
-                  <span
-                    className={cn(
-                      "text-xs font-medium",
-                      cp.isCorrect ? "text-emerald-400" : "text-red-400"
-                    )}
-                  >
+                <span className="text-muted-foreground text-xs">#{cp.cardIndex}</span>
+                <div className="flex items-center gap-4 text-xs">
+                  <span>Yours: <strong>{cp.userCount}</strong></span>
+                  <span>Actual: <strong>{cp.actualCount}</strong></span>
+                  <span className={cp.isCorrect ? "text-emerald-400" : "text-red-400"}>
                     {cp.isCorrect ? "Correct" : "Wrong"}
                   </span>
                 </div>
@@ -1017,35 +1082,30 @@ function ResultsScreen({
         </div>
       )}
 
-      {/* System Info */}
       <div className="text-center text-xs text-muted-foreground">
-        {system.name} system &middot; {config.deckCount}-deck shoe &middot;{" "}
-        {config.speed} speed
+        {system.name} · {config.deckCount}-deck · {config.speed} speed
       </div>
 
-      {/* Restart */}
-      <div className="flex justify-center gap-4">
-        <button
-          onClick={onRestart}
-          className="rounded-xl bg-primary px-8 py-3 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          Practice Again
+      <div className="flex justify-center gap-3">
+        <button onClick={onRestart} className="rounded-xl bg-primary px-6 py-3 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
+          Try Again
         </button>
+        {stats.accuracy < 70 && (
+          <button onClick={onPlayground} className="rounded-xl border border-primary/50 bg-primary/5 px-6 py-3 font-semibold text-primary hover:bg-primary/10 transition-colors">
+            Try Playground
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-// ─────────────────────── Main Trainer ───────────────────────
+// ─────────────────────── Main Orchestrator ───────────────────────
 export function CountingTrainer() {
-  const [mode, setMode] = useState<TrainerMode>("setup");
+  const [mode, setMode] = useState<AppMode>("home");
   const [config, setConfig] = useState<TrainerConfig>(DEFAULT_CONFIG);
   const [finalStats, setFinalStats] = useState<TrainerStats | null>(null);
   const [finalCheckpoints, setFinalCheckpoints] = useState<DrillCheckpoint[]>([]);
-
-  const handleStart = (m: "speed-drill" | "table-sim") => {
-    setMode(m);
-  };
 
   const handleFinish = (stats: TrainerStats, checkpoints: DrillCheckpoint[]) => {
     setFinalStats(stats);
@@ -1056,23 +1116,33 @@ export function CountingTrainer() {
   const handleRestart = () => {
     setFinalStats(null);
     setFinalCheckpoints([]);
-    setMode("setup");
+    setMode("home");
   };
 
   return (
     <div>
-      {mode === "setup" && (
-        <SetupScreen
-          config={config}
-          onConfigChange={setConfig}
-          onStart={handleStart}
+      {mode === "home" && (
+        <HomeScreen config={config} onConfigChange={setConfig} onSelectMode={setMode} />
+      )}
+      {mode === "tutorial" && (
+        <Tutorial
+          system={config.system}
+          onComplete={() => setMode("playground")}
+          onBack={() => setMode("home")}
+        />
+      )}
+      {mode === "playground" && (
+        <Playground
+          system={config.system}
+          deckCount={config.deckCount}
+          onBack={() => setMode("home")}
         />
       )}
       {mode === "speed-drill" && (
-        <SpeedDrill config={config} onFinish={handleFinish} />
+        <SpeedDrill config={config} onFinish={handleFinish} onBack={() => setMode("home")} />
       )}
       {mode === "table-sim" && (
-        <TableSim config={config} onFinish={handleFinish} />
+        <TableSim config={config} onFinish={handleFinish} onBack={() => setMode("home")} />
       )}
       {mode === "results" && finalStats && (
         <ResultsScreen
@@ -1080,6 +1150,7 @@ export function CountingTrainer() {
           checkpoints={finalCheckpoints}
           config={config}
           onRestart={handleRestart}
+          onPlayground={() => setMode("playground")}
         />
       )}
     </div>
