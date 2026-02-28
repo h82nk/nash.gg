@@ -47,6 +47,12 @@ export function Navbar() {
             >
               Ranges
             </Link>
+            <Link
+              href="/blackjack"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Blackjack
+            </Link>
           </div>
 
           {/* CTA */}
@@ -113,6 +119,12 @@ export function Navbar() {
               className="block text-sm text-muted-foreground hover:text-foreground"
             >
               Ranges
+            </Link>
+            <Link
+              href="/blackjack"
+              className="block text-sm text-muted-foreground hover:text-foreground"
+            >
+              Blackjack
             </Link>
             <div className="pt-3 border-t border-border space-y-3">
               <button className="block text-sm text-muted-foreground">
