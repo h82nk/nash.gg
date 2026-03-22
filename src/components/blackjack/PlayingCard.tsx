@@ -159,8 +159,8 @@ function CardFace({
 }
 
 // ─── Main PlayingCard ───
-// No 3D transforms. Just conditionally renders face or back.
-// Animated cards get a deal-in slide, then a scaleX flip to reveal.
+// No 3D transforms, no flip animation, no timers.
+// Just conditionally renders face or back based on faceDown prop.
 export function PlayingCard({
   card,
   faceDown = false,
@@ -172,39 +172,13 @@ export function PlayingCard({
   countValue = null,
   showCountBadge = false,
 }: PlayingCardProps) {
-  // showBack: true = back visible, false = face visible.
-  // For animated cards: start showing back, then flip to target after delay.
-  const [showBack, setShowBack] = useState(animate ? true : faceDown);
   const [isVisible, setIsVisible] = useState(!animate);
-  const [isFlipping, setIsFlipping] = useState(false);
 
   useEffect(() => {
-    if (!animate) {
-      setShowBack(faceDown);
-      return;
-    }
-    const showTimer = setTimeout(() => setIsVisible(true), dealDelay);
-
-    // Only flip if the final state is face-up
-    let flipStartTimer: ReturnType<typeof setTimeout> | undefined;
-    let flipEndTimer: ReturnType<typeof setTimeout> | undefined;
-    if (!faceDown) {
-      // Start flip animation (scaleX → 0), swap side, then (scaleX → 1)
-      flipStartTimer = setTimeout(() => {
-        setIsFlipping(true);
-      }, dealDelay + 300);
-      flipEndTimer = setTimeout(() => {
-        setShowBack(false);
-        setIsFlipping(false);
-      }, dealDelay + 450);
-    }
-
-    return () => {
-      clearTimeout(showTimer);
-      if (flipStartTimer) clearTimeout(flipStartTimer);
-      if (flipEndTimer) clearTimeout(flipEndTimer);
-    };
-  }, [animate, faceDown, dealDelay]);
+    if (!animate) return;
+    const timer = setTimeout(() => setIsVisible(true), dealDelay);
+    return () => clearTimeout(timer);
+  }, [animate, dealDelay]);
 
   const sizeClasses = {
     sm: "w-[52px] h-[74px]",
@@ -221,20 +195,16 @@ export function PlayingCard({
         !isVisible && "opacity-0",
         className
       )}
-      style={{
-        ...(animate ? { animationDelay: `${dealDelay}ms` } : {}),
-        transform: isFlipping ? "scaleX(0)" : "scaleX(1)",
-        transition: "transform 0.15s ease-in-out",
-      }}
+      style={animate ? { animationDelay: `${dealDelay}ms` } : undefined}
     >
-      {showBack ? (
+      {faceDown ? (
         <CardBack />
       ) : (
         <CardFace card={card} size={size} highlight={highlight} />
       )}
 
       {/* Count value badge */}
-      {showCountBadge && countValue !== null && !showBack && (
+      {showCountBadge && countValue !== null && !faceDown && (
         <div
           className={cn(
             "absolute -top-2 -right-2 z-10 flex items-center justify-center rounded-full border-2 shadow-md text-[10px] font-bold text-white",
