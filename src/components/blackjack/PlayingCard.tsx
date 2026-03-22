@@ -43,10 +43,7 @@ function FaceCardCenter({ rank, suit }: { rank: string; suit: BJCard["suit"] }) 
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center">
-      <span
-        className="text-3xl font-bold leading-none"
-        style={{ color }}
-      >
+      <span className="text-3xl font-bold leading-none" style={{ color }}>
         {RANK_DISPLAY[rank as BJCard["rank"]]}
       </span>
       <span className="text-lg mt-0.5" style={{ color }}>
@@ -91,6 +88,79 @@ function PipCenter({ card, size }: { card: BJCard; size: string }) {
   );
 }
 
+// ─── Card Back ───
+function CardBack() {
+  return (
+    <div className="w-full h-full rounded-lg overflow-hidden shadow-lg border border-[#2a2a6e]">
+      <div className="card-back-pattern w-full h-full rounded-lg">
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="w-[70%] h-[70%] rounded border border-[#3a3a8e]/50 flex items-center justify-center bg-[#0e0e3a]/50">
+            <span className="text-[#4a4aae] font-bold text-xs opacity-60">N</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Card Face ───
+function CardFace({
+  card,
+  size,
+  highlight,
+}: {
+  card: BJCard;
+  size: "sm" | "md" | "lg";
+  highlight?: "correct" | "incorrect" | null;
+}) {
+  const color = getSuitColor(card.suit);
+  const symbol = SUIT_SYMBOLS[card.suit];
+  const displayRank = RANK_DISPLAY[card.rank];
+  const isFaceCard = ["J", "Q", "K"].includes(card.rank);
+
+  const cornerSize = {
+    sm: "text-[9px] leading-[10px]",
+    md: "text-[11px] leading-[13px]",
+    lg: "text-sm leading-4",
+  };
+
+  return (
+    <div
+      className={cn(
+        "w-full h-full rounded-lg overflow-hidden shadow-lg border relative",
+        highlight === "correct" && "ring-2 ring-emerald-400",
+        highlight === "incorrect" && "ring-2 ring-red-400"
+      )}
+      style={{
+        background: "linear-gradient(145deg, #ffffff 0%, #f5f5f0 100%)",
+        borderColor: "#d1d1c7",
+      }}
+    >
+      {/* Top-left corner */}
+      <div className={cn("absolute top-[3px] left-[4px] flex flex-col items-center", cornerSize[size])}>
+        <span className="font-bold" style={{ color }}>{displayRank}</span>
+        <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
+      </div>
+
+      {/* Bottom-right corner (rotated) */}
+      <div className={cn("absolute bottom-[3px] right-[4px] flex flex-col items-center rotate-180", cornerSize[size])}>
+        <span className="font-bold" style={{ color }}>{displayRank}</span>
+        <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
+      </div>
+
+      {/* Center */}
+      {isFaceCard ? (
+        <FaceCardCenter rank={card.rank} suit={card.suit} />
+      ) : (
+        <PipCenter card={card} size={size} />
+      )}
+    </div>
+  );
+}
+
+// ─── Main PlayingCard ───
+// No 3D transforms. Just conditionally renders face or back.
+// Animated cards get a deal-in slide, then a scaleX flip to reveal.
 export function PlayingCard({
   card,
   faceDown = false,
@@ -102,22 +172,37 @@ export function PlayingCard({
   countValue = null,
   showCountBadge = false,
 }: PlayingCardProps) {
-  // CSS: default = face visible. .flipped = back visible (face-down).
-  // So isFlipped directly maps to faceDown — simple and intuitive.
-  // When animating: start face-down (true), then flip to faceDown after delay.
-  const [isFlipped, setIsFlipped] = useState(animate ? true : faceDown);
+  // showBack: true = back visible, false = face visible.
+  // For animated cards: start showing back, then flip to target after delay.
+  const [showBack, setShowBack] = useState(animate ? true : faceDown);
   const [isVisible, setIsVisible] = useState(!animate);
+  const [isFlipping, setIsFlipping] = useState(false);
 
   useEffect(() => {
     if (!animate) {
-      setIsFlipped(faceDown);
+      setShowBack(faceDown);
       return;
     }
     const showTimer = setTimeout(() => setIsVisible(true), dealDelay);
-    const flipTimer = setTimeout(() => setIsFlipped(faceDown), dealDelay + 150);
+
+    // Only flip if the final state is face-up
+    let flipStartTimer: ReturnType<typeof setTimeout> | undefined;
+    let flipEndTimer: ReturnType<typeof setTimeout> | undefined;
+    if (!faceDown) {
+      // Start flip animation (scaleX → 0), swap side, then (scaleX → 1)
+      flipStartTimer = setTimeout(() => {
+        setIsFlipping(true);
+      }, dealDelay + 300);
+      flipEndTimer = setTimeout(() => {
+        setShowBack(false);
+        setIsFlipping(false);
+      }, dealDelay + 450);
+    }
+
     return () => {
       clearTimeout(showTimer);
-      clearTimeout(flipTimer);
+      if (flipStartTimer) clearTimeout(flipStartTimer);
+      if (flipEndTimer) clearTimeout(flipEndTimer);
     };
   }, [animate, faceDown, dealDelay]);
 
@@ -127,75 +212,29 @@ export function PlayingCard({
     lg: "w-[96px] h-[136px]",
   };
 
-  const cornerSize = {
-    sm: "text-[9px] leading-[10px]",
-    md: "text-[11px] leading-[13px]",
-    lg: "text-sm leading-4",
-  };
-
-  const color = getSuitColor(card.suit);
-  const symbol = SUIT_SYMBOLS[card.suit];
-  const displayRank = RANK_DISPLAY[card.rank];
-  const isFaceCard = ["J", "Q", "K"].includes(card.rank);
-
   return (
     <div
       className={cn(
-        "card-perspective inline-block shrink-0",
+        "inline-block shrink-0 relative",
         sizeClasses[size],
         animate && isVisible && "animate-deal",
         !isVisible && "opacity-0",
         className
       )}
-      style={animate ? { animationDelay: `${dealDelay}ms` } : undefined}
+      style={{
+        ...(animate ? { animationDelay: `${dealDelay}ms` } : {}),
+        transform: isFlipping ? "scaleX(0)" : "scaleX(1)",
+        transition: "transform 0.15s ease-in-out",
+      }}
     >
-      <div className={cn("card-inner", isFlipped && "flipped")}>
-        {/* Card Face */}
-        <div
-          className={cn(
-            "card-face rounded-lg overflow-hidden shadow-lg border",
-            highlight === "correct" && "ring-2 ring-emerald-400",
-            highlight === "incorrect" && "ring-2 ring-red-400"
-          )}
-          style={{
-            background: "linear-gradient(145deg, #ffffff 0%, #f5f5f0 100%)",
-            borderColor: "#d1d1c7",
-          }}
-        >
-          {/* Top-left corner */}
-          <div className={cn("absolute top-[3px] left-[4px] flex flex-col items-center", cornerSize[size])}>
-            <span className="font-bold" style={{ color }}>{displayRank}</span>
-            <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
-          </div>
-
-          {/* Bottom-right corner (rotated) */}
-          <div className={cn("absolute bottom-[3px] right-[4px] flex flex-col items-center rotate-180", cornerSize[size])}>
-            <span className="font-bold" style={{ color }}>{displayRank}</span>
-            <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
-          </div>
-
-          {/* Center */}
-          {isFaceCard ? (
-            <FaceCardCenter rank={card.rank} suit={card.suit} />
-          ) : (
-            <PipCenter card={card} size={size} />
-          )}
-        </div>
-
-        {/* Card Back */}
-        <div className="card-back rounded-lg overflow-hidden shadow-lg border border-[#2a2a6e]">
-          <div className="card-back-pattern w-full h-full rounded-lg">
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="w-[70%] h-[70%] rounded border border-[#3a3a8e]/50 flex items-center justify-center bg-[#0e0e3a]/50">
-                <span className="text-[#4a4aae] font-bold text-xs opacity-60">N</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {showBack ? (
+        <CardBack />
+      ) : (
+        <CardFace card={card} size={size} highlight={highlight} />
+      )}
 
       {/* Count value badge */}
-      {showCountBadge && countValue !== null && !faceDown && (
+      {showCountBadge && countValue !== null && !showBack && (
         <div
           className={cn(
             "absolute -top-2 -right-2 z-10 flex items-center justify-center rounded-full border-2 shadow-md text-[10px] font-bold text-white",
