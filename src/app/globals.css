@@ -168,11 +168,11 @@ body {
 }
 
 .card-back {
-  transform: rotateY(0deg);
+  transform: rotateY(180deg);
 }
 
 .card-face {
-  transform: rotateY(180deg);
+  transform: rotateY(0deg);
 }
 
 /* Card deal slide-in */
