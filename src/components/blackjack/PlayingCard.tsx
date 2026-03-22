@@ -102,16 +102,19 @@ export function PlayingCard({
   countValue = null,
   showCountBadge = false,
 }: PlayingCardProps) {
-  const [isFlipped, setIsFlipped] = useState(faceDown);
+  // CSS: .flipped (rotateY 180deg) reveals the face side.
+  // So isFlipped=true → face visible, isFlipped=false → back visible.
+  // When animating: start face-down (false), then flip to !faceDown after delay.
+  const [isFlipped, setIsFlipped] = useState(animate ? false : !faceDown);
   const [isVisible, setIsVisible] = useState(!animate);
 
   useEffect(() => {
     if (!animate) {
-      setIsFlipped(faceDown);
+      setIsFlipped(!faceDown);
       return;
     }
     const showTimer = setTimeout(() => setIsVisible(true), dealDelay);
-    const flipTimer = setTimeout(() => setIsFlipped(faceDown), dealDelay + 150);
+    const flipTimer = setTimeout(() => setIsFlipped(!faceDown), dealDelay + 150);
     return () => {
       clearTimeout(showTimer);
       clearTimeout(flipTimer);
