@@ -1420,6 +1420,10 @@ export function CountingTrainer() {
 
   return (
     <div>
+      {/* DEBUG: If you can see this, the new code is loaded */}
+      <div style={{ background: "#ff0000", color: "#ffffff", padding: "12px", textAlign: "center" as const, fontWeight: "bold", fontSize: "18px", borderRadius: "8px", marginBottom: "16px" }}>
+        NEW CODE LOADED — NUMPAD VERSION
+      </div>
       {mode === "home" && (
         <HomeScreen config={config} onConfigChange={setConfig} onSelectMode={setMode} />
       )}
