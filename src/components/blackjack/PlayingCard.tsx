@@ -9,10 +9,13 @@ interface PlayingCardProps {
   card: BJCard;
   faceDown?: boolean;
   animate?: boolean;
+  animationType?: "deal" | "deal-table";
   dealDelay?: number;
   size?: "sm" | "md" | "lg";
   className?: string;
   highlight?: "correct" | "incorrect" | null;
+  countValue?: number | null;
+  showCountBadge?: boolean;
 }
 
 function getSuitColor(suit: BJCard["suit"]): string {
@@ -41,10 +44,7 @@ function FaceCardCenter({ rank, suit }: { rank: string; suit: BJCard["suit"] }) 
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center">
-      <span
-        className="text-3xl font-bold leading-none"
-        style={{ color }}
-      >
+      <span className="text-3xl font-bold leading-none" style={{ color }}>
         {RANK_DISPLAY[rank as BJCard["rank"]]}
       </span>
       <span className="text-lg mt-0.5" style={{ color }}>
@@ -89,36 +89,35 @@ function PipCenter({ card, size }: { card: BJCard; size: string }) {
   );
 }
 
-export function PlayingCard({
+// ─── Card Back ───
+function CardBack() {
+  return (
+    <div className="w-full h-full rounded-lg overflow-hidden shadow-lg border border-[#2a2a6e]">
+      <div className="card-back-pattern w-full h-full rounded-lg">
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="w-[70%] h-[70%] rounded border border-[#3a3a8e]/50 flex items-center justify-center bg-[#0e0e3a]/50">
+            <span className="text-[#4a4aae] font-bold text-xs opacity-60">N</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Card Face ───
+function CardFace({
   card,
-  faceDown = false,
-  animate = true,
-  dealDelay = 0,
-  size = "md",
-  className,
+  size,
   highlight,
-}: PlayingCardProps) {
-  const [isFlipped, setIsFlipped] = useState(faceDown);
-  const [isVisible, setIsVisible] = useState(!animate);
-
-  useEffect(() => {
-    if (!animate) {
-      setIsFlipped(faceDown);
-      return;
-    }
-    const showTimer = setTimeout(() => setIsVisible(true), dealDelay);
-    const flipTimer = setTimeout(() => setIsFlipped(faceDown), dealDelay + 150);
-    return () => {
-      clearTimeout(showTimer);
-      clearTimeout(flipTimer);
-    };
-  }, [animate, faceDown, dealDelay]);
-
-  const sizeClasses = {
-    sm: "w-[52px] h-[74px]",
-    md: "w-[72px] h-[102px]",
-    lg: "w-[96px] h-[136px]",
-  };
+}: {
+  card: BJCard;
+  size: "sm" | "md" | "lg";
+  highlight?: "correct" | "incorrect" | null;
+}) {
+  const color = getSuitColor(card.suit);
+  const symbol = SUIT_SYMBOLS[card.suit];
+  const displayRank = RANK_DISPLAY[card.rank];
+  const isFaceCard = ["J", "Q", "K"].includes(card.rank);
 
   const cornerSize = {
     sm: "text-[9px] leading-[10px]",
@@ -126,66 +125,104 @@ export function PlayingCard({
     lg: "text-sm leading-4",
   };
 
-  const color = getSuitColor(card.suit);
-  const symbol = SUIT_SYMBOLS[card.suit];
-  const displayRank = RANK_DISPLAY[card.rank];
-  const isFaceCard = ["J", "Q", "K"].includes(card.rank);
+  return (
+    <div
+      className={cn(
+        "w-full h-full rounded-lg overflow-hidden shadow-lg border relative",
+        highlight === "correct" && "ring-2 ring-emerald-400",
+        highlight === "incorrect" && "ring-2 ring-red-400"
+      )}
+      style={{
+        background: "linear-gradient(145deg, #ffffff 0%, #f5f5f0 100%)",
+        borderColor: "#d1d1c7",
+      }}
+    >
+      {/* Top-left corner */}
+      <div className={cn("absolute top-[3px] left-[4px] flex flex-col items-center", cornerSize[size])}>
+        <span className="font-bold" style={{ color }}>{displayRank}</span>
+        <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
+      </div>
+
+      {/* Bottom-right corner (rotated) */}
+      <div className={cn("absolute bottom-[3px] right-[4px] flex flex-col items-center rotate-180", cornerSize[size])}>
+        <span className="font-bold" style={{ color }}>{displayRank}</span>
+        <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
+      </div>
+
+      {/* Center */}
+      {isFaceCard ? (
+        <FaceCardCenter rank={card.rank} suit={card.suit} />
+      ) : (
+        <PipCenter card={card} size={size} />
+      )}
+    </div>
+  );
+}
+
+// ─── Main PlayingCard ───
+// No 3D transforms, no flip animation, no timers.
+// Just conditionally renders face or back based on faceDown prop.
+export function PlayingCard({
+  card,
+  faceDown = false,
+  animate = true,
+  animationType = "deal",
+  dealDelay = 0,
+  size = "md",
+  className,
+  highlight,
+  countValue = null,
+  showCountBadge = false,
+}: PlayingCardProps) {
+  const [isVisible, setIsVisible] = useState(!animate);
+
+  useEffect(() => {
+    if (!animate) return;
+    const timer = setTimeout(() => setIsVisible(true), dealDelay);
+    return () => clearTimeout(timer);
+  }, [animate, dealDelay]);
+
+  const sizeClasses = {
+    sm: "w-[52px] h-[74px]",
+    md: "w-[72px] h-[102px]",
+    lg: "w-[96px] h-[136px]",
+  };
+
+  const animClass = animationType === "deal-table" ? "animate-deal-table" : "animate-deal";
 
   return (
     <div
       className={cn(
-        "card-perspective inline-block shrink-0",
+        "inline-block shrink-0 relative",
         sizeClasses[size],
-        animate && isVisible && "animate-deal",
+        animate && isVisible && animClass,
         !isVisible && "opacity-0",
         className
       )}
       style={animate ? { animationDelay: `${dealDelay}ms` } : undefined}
     >
-      <div className={cn("card-inner", isFlipped && "flipped")}>
-        {/* Card Face */}
+      {faceDown ? (
+        <CardBack />
+      ) : (
+        <CardFace card={card} size={size} highlight={highlight} />
+      )}
+
+      {/* Count value badge */}
+      {showCountBadge && countValue !== null && !faceDown && (
         <div
           className={cn(
-            "card-face rounded-lg overflow-hidden shadow-lg border",
-            highlight === "correct" && "ring-2 ring-emerald-400",
-            highlight === "incorrect" && "ring-2 ring-red-400"
+            "absolute -top-2 -right-2 z-10 flex items-center justify-center rounded-full border-2 shadow-md text-[10px] font-bold text-white",
+            size === "sm" ? "w-5 h-5" : "w-6 h-6",
+            countValue > 0
+              ? "bg-emerald-500 border-emerald-300"
+              : countValue < 0
+                ? "bg-red-500 border-red-300"
+                : "bg-gray-500 border-gray-300"
           )}
-          style={{
-            background: "linear-gradient(145deg, #ffffff 0%, #f5f5f0 100%)",
-            borderColor: "#d1d1c7",
-          }}
         >
-          {/* Top-left corner */}
-          <div className={cn("absolute top-[3px] left-[4px] flex flex-col items-center", cornerSize[size])}>
-            <span className="font-bold" style={{ color }}>{displayRank}</span>
-            <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
-          </div>
-
-          {/* Bottom-right corner (rotated) */}
-          <div className={cn("absolute bottom-[3px] right-[4px] flex flex-col items-center rotate-180", cornerSize[size])}>
-            <span className="font-bold" style={{ color }}>{displayRank}</span>
-            <span className="-mt-[2px]" style={{ color }}>{symbol}</span>
-          </div>
-
-          {/* Center */}
-          {isFaceCard ? (
-            <FaceCardCenter rank={card.rank} suit={card.suit} />
-          ) : (
-            <PipCenter card={card} size={size} />
-          )}
+          {countValue > 0 ? "+" : ""}{countValue}
         </div>
-
-        {/* Card Back */}
-        <div className="card-back rounded-lg overflow-hidden shadow-lg border border-[#2a2a6e]">
-          <div className="card-back-pattern w-full h-full rounded-lg">
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="w-[70%] h-[70%] rounded border border-[#3a3a8e]/50 flex items-center justify-center bg-[#0e0e3a]/50">
-                <span className="text-[#4a4aae] font-bold text-xs opacity-60">N</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

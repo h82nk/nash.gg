@@ -42,11 +42,14 @@ export interface TrainerStats {
   cardsPerMinute: number;
 }
 
+export type BurstCount = 1 | 2 | 3;
+
 export interface TrainerConfig {
   system: CountingSystem;
   deckCount: DeckCount;
   speed: DealSpeed;
   checkpointInterval: number; // check count every N cards
+  burstCount: BurstCount; // cards dealt per beat (1 = normal, 2-3 = multi-hand)
 }
 
 export const DEAL_SPEED_MS: Record<DealSpeed, number> = {
