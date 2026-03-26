@@ -9,6 +9,7 @@ interface PlayingCardProps {
   card: BJCard;
   faceDown?: boolean;
   animate?: boolean;
+  animationType?: "deal" | "deal-table";
   dealDelay?: number;
   size?: "sm" | "md" | "lg";
   className?: string;
@@ -165,6 +166,7 @@ export function PlayingCard({
   card,
   faceDown = false,
   animate = true,
+  animationType = "deal",
   dealDelay = 0,
   size = "md",
   className,
@@ -186,12 +188,14 @@ export function PlayingCard({
     lg: "w-[96px] h-[136px]",
   };
 
+  const animClass = animationType === "deal-table" ? "animate-deal-table" : "animate-deal";
+
   return (
     <div
       className={cn(
         "inline-block shrink-0 relative",
         sizeClasses[size],
-        animate && isVisible && "animate-deal",
+        animate && isVisible && animClass,
         !isVisible && "opacity-0",
         className
       )}
