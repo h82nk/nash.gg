@@ -9,6 +9,7 @@ import type {
   CountingSystem,
   DeckCount,
   DealSpeed,
+  BurstCount,
 } from "@/types/blackjack";
 import { DEAL_SPEED_MS } from "@/types/blackjack";
 import { createShoe, getPenetration, getCardsRemaining } from "@/lib/blackjack/deck";
@@ -23,15 +24,20 @@ import { PlayingCard, MiniCard } from "./PlayingCard";
 import { CountInput } from "./CountInput";
 import { Tutorial } from "./Tutorial";
 import { Playground } from "./Playground";
+import { playCardSlide, playChipClick, playBuzz, playShuffle } from "@/lib/blackjack/sounds";
 import { cn } from "@/lib/utils";
 
 type AppMode = "home" | "tutorial" | "playground" | "speed-drill" | "table-sim" | "results";
+
+/** Cut card penetration threshold — typical casino range is 75-80% */
+const CUT_CARD_PENETRATION = 75;
 
 const DEFAULT_CONFIG: TrainerConfig = {
   system: "hi-lo",
   deckCount: 6,
   speed: "medium",
   checkpointInterval: 5,
+  burstCount: 1,
 };
 
 // ─────────────────────── Home Screen ───────────────────────
@@ -256,6 +262,33 @@ function HomeScreen({
                 ))}
               </div>
             </div>
+
+            {/* Burst Count */}
+            <div>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Cards Per Beat (speed drill)</label>
+              <div className="flex gap-2">
+                {([1, 2, 3] as BurstCount[]).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => onConfigChange({ ...config, burstCount: n })}
+                    className={cn(
+                      "flex-1 rounded-lg border py-2.5 text-center text-sm font-medium transition-all",
+                      config.burstCount === n
+                        ? "border-primary bg-primary/5 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    <div>{n}</div>
+                    <div className="text-[9px] text-muted-foreground/60 mt-0.5">
+                      {n === 1 ? "Normal" : n === 2 ? "Double" : "Triple"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-1.5">
+                Simulate busy tables where multiple cards flip quickly
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -346,6 +379,63 @@ function FeltShoe({
   );
 }
 
+// ─────────────────────── Discard Tray on Felt ───────────────────────
+function DiscardTray({ cardsDealt }: { cardsDealt: number }) {
+  if (cardsDealt === 0) return null;
+
+  // Stack grows as more cards are dealt (max visual height)
+  const stackHeight = Math.min(40, Math.max(4, Math.round(cardsDealt / 4)));
+  // Show up to 4 stacked card edges
+  const layers = Math.min(4, Math.ceil(cardsDealt / 10));
+
+  return (
+    <div className="absolute bottom-4 left-4 flex flex-col items-center gap-1 z-[5]">
+      <div className="relative w-12" style={{ height: `${stackHeight + 16}px` }}>
+        {/* Tray base */}
+        <div className="absolute bottom-0 left-0 right-0 h-[3px] rounded-full bg-white/10" />
+        {/* Stacked card edges */}
+        {Array.from({ length: layers }).map((_, i) => (
+          <div
+            key={i}
+            className="absolute left-0 right-0 rounded-sm border border-white/10"
+            style={{
+              bottom: `${3 + i * 3}px`,
+              height: `${Math.max(6, stackHeight - i * 2)}px`,
+              background: `linear-gradient(180deg, #e8e8e0 0%, #d8d8d0 100%)`,
+              opacity: 0.4 + i * 0.15,
+              transform: `rotate(${(i % 2 === 0 ? -1 : 1) * (i + 1)}deg)`,
+            }}
+          />
+        ))}
+      </div>
+      <span className="text-[8px] text-white/25 font-medium">{cardsDealt}</span>
+    </div>
+  );
+}
+
+// ─────────────────────── Cut Card Banner ───────────────────────
+function CutCardBanner({ onReshuffle }: { onReshuffle: () => void }) {
+  return (
+    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-20 flex items-center justify-center rounded-2xl">
+      <div className="text-center space-y-4">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500/20 border border-yellow-500/30">
+          <div className="w-6 h-8 rounded-sm bg-yellow-400 border border-yellow-300" />
+          <span className="text-yellow-300 font-bold text-sm">Cut Card Reached</span>
+        </div>
+        <div className="text-white/50 text-xs">
+          {CUT_CARD_PENETRATION}% of the shoe has been dealt
+        </div>
+        <button
+          onClick={onReshuffle}
+          className="rounded-xl bg-primary px-6 py-2.5 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          Reshuffle &amp; Continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────── Speed Drill Mode ───────────────────────
 function SpeedDrill({
   config,
@@ -356,10 +446,11 @@ function SpeedDrill({
   onFinish: (stats: TrainerStats, checkpoints: DrillCheckpoint[]) => void;
   onBack: () => void;
 }) {
-  const [shoe] = useState(() => createShoe(config.deckCount));
+  const [shoe, setShoe] = useState(() => createShoe(config.deckCount));
   const [cardIndex, setCardIndex] = useState(0);
   const [visibleCards, setVisibleCards] = useState<BJCard[]>([]);
   const [isWaiting, setIsWaiting] = useState(false);
+  const [hitCutCard, setHitCutCard] = useState(false);
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
   const [lastResult, setLastResult] = useState<{
     correct: boolean;
@@ -392,6 +483,23 @@ function SpeedDrill({
   const penetration = getPenetration(shoe, cardIndex);
   const bettingAdvice = getBettingAdvice(trueCount);
 
+  // Cut card detection
+  useEffect(() => {
+    if (penetration >= CUT_CARD_PENETRATION && !hitCutCard && cardIndex > 0) {
+      setHitCutCard(true);
+      setIsPaused(true);
+    }
+  }, [penetration, hitCutCard, cardIndex]);
+
+  const handleReshuffle = () => {
+    playShuffle();
+    setShoe(createShoe(config.deckCount));
+    setCardIndex(0);
+    setVisibleCards([]);
+    setHitCutCard(false);
+    setIsPaused(false);
+  };
+
   const dealNextCard = useCallback(() => {
     if (cardIndex >= shoe.length) {
       const elapsed = (Date.now() - sessionStartTime.current) / 60000;
@@ -406,17 +514,30 @@ function SpeedDrill({
       return;
     }
 
-    const nextCard = shoe[cardIndex];
-    setVisibleCards((prev) => [...prev.slice(-11), nextCard]);
-    setCardIndex((prev) => prev + 1);
-    setStats((prev) => ({ ...prev, cardsDealt: prev.cardsDealt + 1 }));
+    // Deal burstCount cards in rapid succession
+    const burst = config.burstCount;
+    const cardsToAdd: BJCard[] = [];
+    let idx = cardIndex;
+    for (let b = 0; b < burst && idx < shoe.length; b++) {
+      cardsToAdd.push(shoe[idx]);
+      idx++;
+    }
 
-    const newIndex = cardIndex + 1;
-    if (newIndex % config.checkpointInterval === 0) {
+    // Stagger sounds for burst > 1
+    cardsToAdd.forEach((_, i) => {
+      if (i === 0) playCardSlide();
+      else setTimeout(() => playCardSlide(), i * 80);
+    });
+
+    setVisibleCards((prev) => [...prev.slice(-(12 - cardsToAdd.length)), ...cardsToAdd]);
+    setCardIndex(idx);
+    setStats((prev) => ({ ...prev, cardsDealt: idx }));
+
+    if (idx % config.checkpointInterval === 0) {
       setIsWaiting(true);
       checkpointStartTime.current = Date.now();
     }
-  }, [cardIndex, shoe, config.checkpointInterval, onFinish, stats, checkpoints]);
+  }, [cardIndex, shoe, config.checkpointInterval, config.burstCount, onFinish, stats, checkpoints]);
 
   useEffect(() => {
     if (isPaused || isWaiting) return;
@@ -457,6 +578,7 @@ function SpeedDrill({
       bestStreak,
     }));
 
+    if (isCorrect) playChipClick(); else playBuzz();
     setLastResult({ correct: isCorrect, actual: actualCount });
     setIsWaiting(false);
     setTimeout(() => setLastResult(null), 1500);
@@ -527,8 +649,13 @@ function SpeedDrill({
       <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[340px] relative overflow-hidden">
         {/* Visual shoe on felt */}
         <FeltShoe remaining={remaining} total={shoe.length} deckCount={config.deckCount} />
+        <DiscardTray cardsDealt={shoe.length - remaining} />
 
-        {isPaused && (
+        {hitCutCard && (
+          <CutCardBanner onReshuffle={handleReshuffle} />
+        )}
+
+        {isPaused && !hitCutCard && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl">
             <div className="text-center">
               <div className="text-2xl font-bold mb-2">Paused</div>
@@ -667,13 +794,13 @@ function TableSim({
   onFinish: (stats: TrainerStats, checkpoints: DrillCheckpoint[]) => void;
   onBack: () => void;
 }) {
-  const [shoe] = useState(() => createShoe(config.deckCount));
+  const [shoe, setShoe] = useState(() => createShoe(config.deckCount));
   const [cardIndex, setCardIndex] = useState(0);
   const [playerHands, setPlayerHands] = useState<BJCard[][]>([]);
   const [dealerHand, setDealerHand] = useState<BJCard[]>([]);
   const [allDealtCards, setAllDealtCards] = useState<BJCard[]>([]);
   const [roundNum, setRoundNum] = useState(0);
-  const [phase, setPhase] = useState<"dealing" | "waiting" | "between">("between");
+  const [phase, setPhase] = useState<"dealing" | "waiting" | "between" | "cut-card">("between");
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
   const [lastResult, setLastResult] = useState<{
     correct: boolean;
@@ -696,6 +823,16 @@ function TableSim({
   const sessionStartTime = useRef(Date.now());
   const numSpots = 3;
 
+  const handleTableReshuffle = () => {
+    playShuffle();
+    setShoe(createShoe(config.deckCount));
+    setCardIndex(0);
+    setAllDealtCards([]);
+    setPlayerHands([]);
+    setDealerHand([]);
+    setPhase("between");
+  };
+
   const actualCount = getRunningCount(
     allDealtCards.map((c) => c.rank),
     config.system
@@ -704,6 +841,8 @@ function TableSim({
   const trueCount = getTrueCount(actualCount, remaining);
   const penetration = getPenetration(shoe, cardIndex);
   const bettingAdvice = getBettingAdvice(trueCount);
+
+  const dealTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const dealRound = useCallback(() => {
     if (cardIndex + (numSpots + 1) * 2 > shoe.length) {
@@ -722,38 +861,72 @@ function TableSim({
     setPhase("dealing");
     setRoundNum((prev) => prev + 1);
 
+    // Pre-compute the full round of cards
     let idx = cardIndex;
-    const hands: BJCard[][] = Array.from({ length: numSpots }, () => []);
-    const dealer: BJCard[] = [];
-    const roundCards: BJCard[] = [];
+    const allRoundCards: BJCard[] = [];
+    // Deal order: spot1, spot2, spot3, dealer, spot1, spot2, spot3, dealer
+    for (let s = 0; s < numSpots; s++) { allRoundCards.push(shoe[idx++]); }
+    allRoundCards.push(shoe[idx++]); // dealer card 1
+    for (let s = 0; s < numSpots; s++) { allRoundCards.push(shoe[idx++]); }
+    allRoundCards.push(shoe[idx++]); // dealer card 2
 
-    for (let s = 0; s < numSpots; s++) {
-      hands[s].push(shoe[idx]);
-      roundCards.push(shoe[idx]);
-      idx++;
-    }
-    dealer.push(shoe[idx]);
-    roundCards.push(shoe[idx]);
-    idx++;
-    for (let s = 0; s < numSpots; s++) {
-      hands[s].push(shoe[idx]);
-      roundCards.push(shoe[idx]);
-      idx++;
-    }
-    dealer.push(shoe[idx]);
-    roundCards.push(shoe[idx]);
-    idx++;
+    const dealInterval = Math.max(180, DEAL_SPEED_MS[config.speed] * 0.4);
 
-    setPlayerHands(hands);
-    setDealerHand(dealer);
-    setAllDealtCards((prev) => [...prev, ...roundCards]);
-    setCardIndex(idx);
-    setStats((prev) => ({ ...prev, cardsDealt: idx }));
+    // Clear any leftover timers
+    dealTimersRef.current.forEach(clearTimeout);
+    dealTimersRef.current = [];
 
-    setTimeout(() => {
-      setPhase("waiting");
-      checkpointStartTime.current = Date.now();
-    }, DEAL_SPEED_MS[config.speed] * 3);
+    // Deal cards one at a time with sequential animation
+    allRoundCards.forEach((card, i) => {
+      const timer = setTimeout(() => {
+        playCardSlide();
+
+        if (i < numSpots) {
+          // First pass — card 1 to each player spot
+          setPlayerHands((prev) => {
+            const next = prev.length === 0
+              ? Array.from({ length: numSpots }, () => [] as BJCard[])
+              : prev.map((h) => [...h]);
+            next[i] = [...(next[i] || []), card];
+            return next;
+          });
+        } else if (i === numSpots) {
+          // Dealer card 1
+          setDealerHand([card]);
+        } else if (i < numSpots * 2 + 1) {
+          // Second pass — card 2 to each player spot
+          const spotIdx = i - numSpots - 1;
+          setPlayerHands((prev) => {
+            const next = prev.map((h) => [...h]);
+            next[spotIdx] = [...(next[spotIdx] || []), card];
+            return next;
+          });
+        } else {
+          // Dealer card 2
+          setDealerHand((prev) => [...prev, card]);
+        }
+
+        setAllDealtCards((prev) => [...prev, card]);
+        setCardIndex(cardIndex + i + 1);
+        setStats((prev) => ({ ...prev, cardsDealt: cardIndex + i + 1 }));
+
+        // After last card, check cut card or transition to waiting
+        if (i === allRoundCards.length - 1) {
+          const finalIdx = cardIndex + allRoundCards.length;
+          const finalPenetration = Math.round((finalIdx / shoe.length) * 100);
+          setTimeout(() => {
+            if (finalPenetration >= CUT_CARD_PENETRATION) {
+              setPhase("cut-card");
+            } else {
+              setPhase("waiting");
+              checkpointStartTime.current = Date.now();
+            }
+          }, dealInterval + 200);
+        }
+      }, i * dealInterval);
+
+      dealTimersRef.current.push(timer);
+    });
   }, [cardIndex, shoe, config.speed, numSpots, onFinish, stats, checkpoints]);
 
   const handleSubmitCountValue = (value: number) => {
@@ -787,6 +960,7 @@ function TableSim({
       bestStreak,
     }));
 
+    if (isCorrect) playChipClick(); else playBuzz();
     setLastResult({ correct: isCorrect, actual: actualCount });
     setPhase("between");
     setTimeout(() => setLastResult(null), 1500);
@@ -847,6 +1021,12 @@ function TableSim({
       <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[400px] relative overflow-hidden">
         {/* Visual shoe on felt */}
         <FeltShoe remaining={remaining} total={shoe.length} deckCount={config.deckCount} />
+        <DiscardTray cardsDealt={shoe.length - remaining} />
+
+        {/* Cut card overlay */}
+        {phase === "cut-card" && (
+          <CutCardBanner onReshuffle={handleTableReshuffle} />
+        )}
 
         {/* Dealer */}
         <div className="text-center mb-8">
@@ -861,7 +1041,6 @@ function TableSim({
                   faceDown={i === 1}
                   animate
                   animationType="deal-table"
-                  dealDelay={i * 150 + numSpots * 150}
                   countValue={i === 0 ? getCardValue(card.rank, config.system) : null}
                   showCountBadge={showBadges && i === 0}
                 />
@@ -884,14 +1063,13 @@ function TableSim({
                 Spot {spotIdx + 1}
               </div>
               <div className="flex justify-center gap-1 sm:gap-2">
-                {playerHands[spotIdx]?.map((card, cardIdx) => (
+                {playerHands[spotIdx]?.map((card) => (
                   <PlayingCard
                     key={card.id}
                     card={card}
                     size="md"
                     animate
                     animationType="deal-table"
-                    dealDelay={spotIdx * 150 + (cardIdx === 1 ? (numSpots + 1) * 150 : 0)}
                     countValue={getCardValue(card.rank, config.system)}
                     showCountBadge={showBadges}
                   />
@@ -919,7 +1097,11 @@ function TableSim({
         {phase === "between" && (
           <div className="flex justify-center mt-4">
             <button
-              onClick={dealRound}
+              onClick={() => {
+                setPlayerHands([]);
+                setDealerHand([]);
+                dealRound();
+              }}
               className="rounded-xl bg-primary/90 hover:bg-primary px-8 py-3 font-semibold text-primary-foreground transition-colors"
             >
               {roundNum === 0 ? "Deal First Round" : "Deal Next Round"}
