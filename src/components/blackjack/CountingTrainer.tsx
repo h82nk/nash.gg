@@ -20,6 +20,7 @@ import {
   COUNTING_SYSTEMS,
 } from "@/lib/blackjack/counting";
 import { PlayingCard, MiniCard } from "./PlayingCard";
+import { CountInput } from "./CountInput";
 import { Tutorial } from "./Tutorial";
 import { Playground } from "./Playground";
 import { cn } from "@/lib/utils";
@@ -189,23 +190,29 @@ function HomeScreen({
 
             {/* Decks */}
             <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-2">Decks</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-2">Shoe Size</label>
               <div className="flex gap-2">
                 {([1, 2, 6, 8] as DeckCount[]).map((n) => (
                   <button
                     key={n}
                     onClick={() => onConfigChange({ ...config, deckCount: n })}
                     className={cn(
-                      "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all",
+                      "flex-1 rounded-lg border py-2 text-center text-sm font-medium transition-all relative",
                       config.deckCount === n
                         ? "border-primary bg-primary/5 text-primary"
                         : "border-border text-muted-foreground"
                     )}
                   >
                     {n}
+                    {(n === 6 || n === 8) && (
+                      <span className="absolute -top-1.5 right-1 text-[7px] px-1 py-0 rounded bg-yellow-500/15 text-yellow-500 border border-yellow-500/20 leading-tight">
+                        Casino
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-1.5">6-8 deck shoes are standard at most casinos</p>
             </div>
 
             {/* Speed */}
@@ -256,7 +263,7 @@ function HomeScreen({
   );
 }
 
-// ─────────────────────── Shoe Indicator ───────────────────────
+// ─────────────────────── Shoe Indicator (stats panel) ───────────────────────
 function ShoeIndicator({
   total,
   remaining,
@@ -298,6 +305,47 @@ function ShoeIndicator({
   );
 }
 
+// ─────────────────────── Visual Shoe on Felt ───────────────────────
+function FeltShoe({
+  remaining,
+  total,
+  deckCount,
+}: {
+  remaining: number;
+  total: number;
+  deckCount: number;
+}) {
+  const pct = remaining / total;
+  const stackHeight = Math.max(8, Math.round(pct * 48));
+  const decksLeft = Math.ceil(remaining / 52);
+
+  return (
+    <div className="absolute top-4 right-4 flex flex-col items-center gap-1 z-[5]">
+      {/* Shoe housing */}
+      <div className="relative w-14 rounded-lg bg-gradient-to-b from-[#1a1a2e] to-[#0e0e1a] border border-white/10 shadow-lg overflow-hidden"
+        style={{ height: `${56}px` }}
+      >
+        {/* Card stack inside shoe */}
+        <div
+          className="absolute bottom-0 left-1 right-1 rounded-sm transition-all duration-700 ease-out"
+          style={{
+            height: `${stackHeight}px`,
+            background: `linear-gradient(180deg, #2a2a6e 0%, #1a1a5e 40%, #12124a 100%)`,
+            boxShadow: "inset 0 1px 2px rgba(100, 100, 200, 0.3)",
+          }}
+        />
+        {/* Top slot line */}
+        <div className="absolute top-2 left-1 right-1 h-[2px] bg-white/10 rounded" />
+        {/* Deck count */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[9px] font-bold text-white/40">{decksLeft}D</span>
+        </div>
+      </div>
+      <span className="text-[8px] text-white/30 font-medium">{deckCount}-DECK</span>
+    </div>
+  );
+}
+
 // ─────────────────────── Speed Drill Mode ───────────────────────
 function SpeedDrill({
   config,
@@ -312,7 +360,6 @@ function SpeedDrill({
   const [cardIndex, setCardIndex] = useState(0);
   const [visibleCards, setVisibleCards] = useState<BJCard[]>([]);
   const [isWaiting, setIsWaiting] = useState(false);
-  const [userInput, setUserInput] = useState("");
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
   const [lastResult, setLastResult] = useState<{
     correct: boolean;
@@ -335,7 +382,6 @@ function SpeedDrill({
   const checkpointStartTime = useRef(Date.now());
   const sessionStartTime = useRef(Date.now());
   const dealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const actualCount = getRunningCount(
     visibleCards.map((c) => c.rank),
@@ -369,7 +415,6 @@ function SpeedDrill({
     if (newIndex % config.checkpointInterval === 0) {
       setIsWaiting(true);
       checkpointStartTime.current = Date.now();
-      setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [cardIndex, shoe, config.checkpointInterval, onFinish, stats, checkpoints]);
 
@@ -381,16 +426,13 @@ function SpeedDrill({
     };
   }, [cardIndex, isPaused, isWaiting, config.speed, dealNextCard]);
 
-  const handleSubmitCount = () => {
-    const parsed = parseInt(userInput, 10);
-    if (isNaN(parsed)) return;
-
+  const handleSubmitCountValue = (value: number) => {
     const timeTaken = Date.now() - checkpointStartTime.current;
-    const isCorrect = parsed === actualCount;
+    const isCorrect = value === actualCount;
 
     const checkpoint: DrillCheckpoint = {
       cardIndex,
-      userCount: parsed,
+      userCount: value,
       actualCount,
       isCorrect,
       timeTakenMs: timeTaken,
@@ -416,7 +458,6 @@ function SpeedDrill({
     }));
 
     setLastResult({ correct: isCorrect, actual: actualCount });
-    setUserInput("");
     setIsWaiting(false);
     setTimeout(() => setLastResult(null), 1500);
   };
@@ -484,6 +525,9 @@ function SpeedDrill({
 
       {/* Felt Area */}
       <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[340px] relative overflow-hidden">
+        {/* Visual shoe on felt */}
+        <FeltShoe remaining={remaining} total={shoe.length} deckCount={config.deckCount} />
+
         {isPaused && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-10 flex items-center justify-center rounded-2xl">
             <div className="text-center">
@@ -515,43 +559,20 @@ function SpeedDrill({
           </div>
         </div>
 
-        {/* Count input — positioned below the cards, not as an overlay */}
+        {/* Count input — tap-friendly stepper */}
         {isWaiting && (
-          <div className="mt-6 flex justify-center">
-            <div
-              className={cn(
-                "bg-black/30 backdrop-blur-sm rounded-xl px-5 py-4 border border-white/10 w-full max-w-sm",
-                lastResult?.correct === true && "flash-correct",
-                lastResult?.correct === false && "flash-incorrect"
-              )}
-            >
-              <div className="text-xs text-white/50 mb-2 text-center">
-                Running count after {cardIndex} cards?
-              </div>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleSubmitCount();
-                }}
-                className="flex gap-2"
-              >
-                <input
-                  ref={inputRef}
-                  type="number"
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  placeholder="0"
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-primary px-5 py-2 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  Check
-                </button>
-              </form>
-            </div>
+          <div
+            className={cn(
+              "mt-6 flex justify-center",
+              lastResult?.correct === true && "flash-correct",
+              lastResult?.correct === false && "flash-incorrect"
+            )}
+          >
+            <CountInput
+              label={`Running count after ${cardIndex} cards?`}
+              onSubmit={handleSubmitCountValue}
+              autoFocus
+            />
           </div>
         )}
 
@@ -575,7 +596,7 @@ function SpeedDrill({
 
         {/* Peek overlay */}
         {showCount && (
-          <div className="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
+          <div className="absolute top-4 left-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
             <div className="text-xs text-white/50">RC</div>
             <div className="text-2xl font-bold text-white count-pop">
               {actualCount > 0 ? "+" : ""}
@@ -653,7 +674,6 @@ function TableSim({
   const [allDealtCards, setAllDealtCards] = useState<BJCard[]>([]);
   const [roundNum, setRoundNum] = useState(0);
   const [phase, setPhase] = useState<"dealing" | "waiting" | "between">("between");
-  const [userInput, setUserInput] = useState("");
   const [checkpoints, setCheckpoints] = useState<DrillCheckpoint[]>([]);
   const [lastResult, setLastResult] = useState<{
     correct: boolean;
@@ -674,7 +694,6 @@ function TableSim({
 
   const checkpointStartTime = useRef(Date.now());
   const sessionStartTime = useRef(Date.now());
-  const inputRef = useRef<HTMLInputElement>(null);
   const numSpots = 3;
 
   const actualCount = getRunningCount(
@@ -734,20 +753,16 @@ function TableSim({
     setTimeout(() => {
       setPhase("waiting");
       checkpointStartTime.current = Date.now();
-      setTimeout(() => inputRef.current?.focus(), 100);
     }, DEAL_SPEED_MS[config.speed] * 3);
   }, [cardIndex, shoe, config.speed, numSpots, onFinish, stats, checkpoints]);
 
-  const handleSubmitCount = () => {
-    const parsed = parseInt(userInput, 10);
-    if (isNaN(parsed)) return;
-
+  const handleSubmitCountValue = (value: number) => {
     const timeTaken = Date.now() - checkpointStartTime.current;
-    const isCorrect = parsed === actualCount;
+    const isCorrect = value === actualCount;
 
     const checkpoint: DrillCheckpoint = {
       cardIndex,
-      userCount: parsed,
+      userCount: value,
       actualCount,
       isCorrect,
       timeTakenMs: timeTaken,
@@ -773,7 +788,6 @@ function TableSim({
     }));
 
     setLastResult({ correct: isCorrect, actual: actualCount });
-    setUserInput("");
     setPhase("between");
     setTimeout(() => setLastResult(null), 1500);
   };
@@ -831,6 +845,9 @@ function TableSim({
 
       {/* Felt */}
       <div className="bg-felt rounded-2xl p-6 sm:p-8 min-h-[400px] relative overflow-hidden">
+        {/* Visual shoe on felt */}
+        <FeltShoe remaining={remaining} total={shoe.length} deckCount={config.deckCount} />
+
         {/* Dealer */}
         <div className="text-center mb-8">
           <div className="text-xs text-white/40 uppercase tracking-wider mb-3">Dealer</div>
@@ -843,6 +860,7 @@ function TableSim({
                   size="lg"
                   faceDown={i === 1}
                   animate
+                  animationType="deal-table"
                   dealDelay={i * 150 + numSpots * 150}
                   countValue={i === 0 ? getCardValue(card.rank, config.system) : null}
                   showCountBadge={showBadges && i === 0}
@@ -872,6 +890,7 @@ function TableSim({
                     card={card}
                     size="md"
                     animate
+                    animationType="deal-table"
                     dealDelay={spotIdx * 150 + (cardIdx === 1 ? (numSpots + 1) * 150 : 0)}
                     countValue={getCardValue(card.rank, config.system)}
                     showCountBadge={showBadges}
@@ -885,34 +904,14 @@ function TableSim({
           ))}
         </div>
 
-        {/* Count Input */}
+        {/* Count Input — tap-friendly stepper */}
         {phase === "waiting" && (
           <div className="flex justify-center mt-4">
-            <div className="bg-black/30 backdrop-blur-sm rounded-xl px-5 py-4 border border-white/10 w-full max-w-sm">
-              <div className="text-xs text-white/50 mb-2 text-center">
-                Running count after round {roundNum}?
-              </div>
-              <form
-                onSubmit={(e) => { e.preventDefault(); handleSubmitCount(); }}
-                className="flex gap-2"
-              >
-                <input
-                  ref={inputRef}
-                  type="number"
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  className="flex-1 rounded-lg bg-white/10 border border-white/20 px-4 py-2 text-center text-lg font-bold text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  placeholder="0"
-                  autoFocus
-                />
-                <button
-                  type="submit"
-                  className="rounded-lg bg-primary px-5 py-2 font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-                >
-                  Check
-                </button>
-              </form>
-            </div>
+            <CountInput
+              label={`Running count after round ${roundNum}?`}
+              onSubmit={handleSubmitCountValue}
+              autoFocus
+            />
           </div>
         )}
 
@@ -946,7 +945,7 @@ function TableSim({
 
         {/* Peek */}
         {showCount && (
-          <div className="absolute top-4 right-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
+          <div className="absolute top-4 left-4 bg-black/50 backdrop-blur rounded-lg p-3 border border-white/10">
             <div className="text-xs text-white/50">RC</div>
             <div className="text-2xl font-bold text-white count-pop">
               {actualCount > 0 ? "+" : ""}
