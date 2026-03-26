@@ -21,11 +21,131 @@ import {
   COUNTING_SYSTEMS,
 } from "@/lib/blackjack/counting";
 import { PlayingCard, MiniCard } from "./PlayingCard";
-import { CountInput } from "./CountInput";
 import { Tutorial } from "./Tutorial";
 import { Playground } from "./Playground";
 import { playCardSlide, playChipClick, playBuzz, playShuffle } from "@/lib/blackjack/sounds";
 import { cn } from "@/lib/utils";
+
+// ─────────────────────── Inline Count Input (Numpad) ───────────────────────
+function CountInput({
+  onSubmit,
+  label = "Running count?",
+}: {
+  onSubmit: (value: number) => void;
+  label?: string;
+}) {
+  const [display, setDisplay] = useState("0");
+  const [isNegative, setIsNegative] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
+
+  const numericValue = (isNegative ? -1 : 1) * (parseInt(display, 10) || 0);
+
+  const handleDigit = (digit: string) => {
+    setDisplay((prev) => {
+      if (prev === "0") return digit;
+      if (prev.length >= 2) return prev;
+      return prev + digit;
+    });
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key >= "0" && e.key <= "9") {
+      e.preventDefault();
+      handleDigit(e.key);
+    } else if (e.key === "-") {
+      e.preventDefault();
+      setIsNegative(true);
+    } else if (e.key === "+") {
+      e.preventDefault();
+      setIsNegative(false);
+    } else if (e.key === "Backspace") {
+      e.preventDefault();
+      setDisplay((prev) => (prev.length <= 1 ? "0" : prev.slice(0, -1)));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      onSubmit(numericValue);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setDisplay("0");
+      setIsNegative(false);
+    }
+  };
+
+  const padBtn =
+    "rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center bg-white/10 hover:bg-white/15 active:bg-white/20 text-white border border-white/5 text-xl h-12";
+
+  return (
+    <div
+      ref={containerRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      className="bg-black/50 backdrop-blur-md rounded-2xl border border-white/10 p-4 w-full max-w-xs outline-none select-none"
+    >
+      <div className="text-xs text-white/50 text-center mb-2">{label}</div>
+
+      {/* Display */}
+      <div
+        className={cn(
+          "rounded-xl px-4 py-3 mb-3 text-center text-4xl font-bold tabular-nums transition-colors border",
+          numericValue > 0
+            ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+            : numericValue < 0
+              ? "text-red-400 bg-red-500/10 border-red-500/20"
+              : "text-white bg-white/5 border-white/10"
+        )}
+      >
+        {isNegative ? "−" : numericValue > 0 ? "+" : ""}
+        {display}
+      </div>
+
+      {/* Numpad */}
+      <div className="grid grid-cols-3 gap-1.5 mb-3">
+        {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
+          <button key={d} type="button" onClick={() => handleDigit(d)} className={padBtn}>
+            {d}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setIsNegative((p) => !p)}
+          className={cn(
+            "rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center h-12 text-lg border",
+            isNegative
+              ? "bg-red-500/20 text-red-400 border-red-500/30"
+              : "bg-white/10 text-white/70 border-white/5"
+          )}
+        >
+          +/−
+        </button>
+        <button type="button" onClick={() => handleDigit("0")} className={padBtn}>
+          0
+        </button>
+        <button
+          type="button"
+          onClick={() => setDisplay((p) => (p.length <= 1 ? "0" : p.slice(0, -1)))}
+          className="rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center bg-white/10 hover:bg-white/15 text-white/60 border border-white/5 h-12 text-sm"
+        >
+          ←
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onSubmit(numericValue)}
+        className="w-full rounded-xl bg-primary py-3 font-bold text-lg text-primary-foreground hover:bg-primary/90 active:scale-[0.98] transition-all"
+      >
+        Submit
+      </button>
+      <div className="text-[10px] text-white/20 text-center mt-2 hidden sm:block">
+        Type digits · minus key for negative · Enter to submit
+      </div>
+    </div>
+  );
+}
 
 type AppMode = "home" | "tutorial" | "playground" | "speed-drill" | "table-sim" | "results";
 
@@ -698,7 +818,6 @@ function SpeedDrill({
             <CountInput
               label={`Running count after ${cardIndex} cards?`}
               onSubmit={handleSubmitCountValue}
-              autoFocus
             />
           </div>
         )}
@@ -1088,7 +1207,6 @@ function TableSim({
             <CountInput
               label={`Running count after round ${roundNum}?`}
               onSubmit={handleSubmitCountValue}
-              autoFocus
             />
           </div>
         )}
